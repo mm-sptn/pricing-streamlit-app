@@ -1,4 +1,5 @@
 import os
+import streamlit as st
 from snowflake.snowpark import Session
 from snowflake.snowpark.context import get_active_session
 from dotenv import load_dotenv
@@ -17,3 +18,7 @@ def get_session():
             "database": os.getenv("SF_DATABASE"),
             "schema": os.getenv("SF_SCHEMA"),
         }).create()
+
+@st.cache_resource(show_spinner = "Connecting to Snowflake...")
+def get_cached_session():
+    return get_session()
