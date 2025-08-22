@@ -3,12 +3,16 @@ import streamlit as st
 from snowflake.snowpark import Session
 from snowflake.snowpark.context import get_active_session
 
+
 def get_session():
+    try:
+        from dotenv import load_dotenv
+        load_dotenv()
+    except ModuleNotFoundError:
+        pass
     try:
         return get_active_session()
     except Exception:
-        from dotenv import load_dotenv
-        load_dotenv()
         return Session.builder.configs({
             "account": os.getenv("SF_ACCOUNT"),
             "user": os.getenv("SF_USER"),
