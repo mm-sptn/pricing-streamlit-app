@@ -2,14 +2,13 @@ import os
 import streamlit as st
 from snowflake.snowpark import Session
 from snowflake.snowpark.context import get_active_session
-from dotenv import load_dotenv
-
-load_dotenv()
 
 def get_session():
     try:
         return get_active_session()
     except Exception:
+        from dotenv import load_dotenv
+        load_dotenv()
         return Session.builder.configs({
             "account": os.getenv("SF_ACCOUNT"),
             "user": os.getenv("SF_USER"),
