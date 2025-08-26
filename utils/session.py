@@ -20,6 +20,7 @@ def get_session():
             "role": os.getenv("SF_ROLE"),
             "database": os.getenv("SF_DATABASE"),
             "schema": os.getenv("SF_SCHEMA"),
+            "warehouse": os.getenv("SF_WAREHOUSE")
         }).create()
 
 @st.cache_resource(show_spinner = "Connecting to Snowflake...")

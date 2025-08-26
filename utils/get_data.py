@@ -30,9 +30,14 @@ def get_item_prices(eff_date, zone_key):
         col('STORECODE')
     ).distinct()
 
-    item_df = session.table('EDW.RTL.RETAIL_ITEM_VW').select(
-        col('ITEM_DESCRIPTION'),
-        col('PRODUCT_UPC')
+    item_df = session.table('SBX_BIZ.MARKETING.T_ITEM').select(
+        col('"Anchor Group ID"'),
+        col('"Item Description"'),
+        col('"Product UPC"'),
+        col('"Unit Size"'),
+        col('"Group ID"'),
+        col('"Category ID"'),
+        col('"Brand"')
     )
 
     pt_type_df = session.table('EDL.PHQ.PRICE_TYPE').select(
@@ -46,10 +51,6 @@ def get_item_prices(eff_date, zone_key):
     )
 
     store_item_prices_df = store_item_prices_df.join(
-        item_df,
-        on = item_df['PRODUCT_UPC'] == col('FULL_UPC_NBR'),
-        how = 'inner'
-    ).join(
         store_zone_df,
         on = store_item_prices_df['STORE_ID'] == store_zone_df['STORECODE'],
         how = 'inner'
@@ -60,7 +61,6 @@ def get_item_prices(eff_date, zone_key):
     ).select(
         col('ZONECODE'),
         col('FULL_UPC_NBR'),
-        col('ITEM_DESCRIPTION'),
         col('IP_UNIT_PRICE'),
         col('IP_PRICE_MULTIPLE'),
         col('IP_START_DATE'),
@@ -74,14 +74,12 @@ def get_item_prices(eff_date, zone_key):
             col('FULL_UPC_NBR'),
         )
         .agg(
-            # Regular metrics
             mode(when(col('PT_DESCRIPTION') == 'Regular', col('IP_UNIT_PRICE'))).alias('IP_UNIT_PRICE'),
             mode(when(col('PT_DESCRIPTION') == 'Regular', col('IP_PRICE_MULTIPLE'))).alias('IP_PRICE_MULTIPLE'),
             mode(when(col('PT_DESCRIPTION') == 'Regular', col('IP_START_DATE'))).alias('IP_START_DATE'),
             mode(when(col('PT_DESCRIPTION') == 'Regular', col('IP_END_DATE'))).alias('IP_END_DATE'),
             count(when(col('PT_DESCRIPTION') == 'Regular', 1)).alias('STORE_COUNT'),
 
-            # Promo metrics
             mode(when(col('PT_DESCRIPTION') != 'Regular', col('PT_DESCRIPTION'))).alias('PROMO_TYPE'),
             mode(when(col('PT_DESCRIPTION') != 'Regular', col('IP_UNIT_PRICE'))).alias('PROMO_UNIT_PRICE'),
             mode(when(col('PT_DESCRIPTION') != 'Regular', col('IP_PRICE_MULTIPLE'))).alias('PROMO_PRICE_MULTIPLE'),
@@ -91,13 +89,18 @@ def get_item_prices(eff_date, zone_key):
         )
         .join(
             item_df,
-            item_df['PRODUCT_UPC'] == col('FULL_UPC_NBR'),
+            item_df['"Product UPC"'] == col('FULL_UPC_NBR'),
             how='left'
         )
         .select(
             col('ZONECODE'),
             col('FULL_UPC_NBR'),
-            col('ITEM_DESCRIPTION'),
+            col('"Item Description"'),
+            col('"Anchor Group ID"'),
+            col('"Group ID"'),
+            col('"Category ID"'),
+            col('"Unit Size"'),
+            col('"Brand"'),
             col('IP_UNIT_PRICE'),
             col('IP_PRICE_MULTIPLE'),
             col('IP_START_DATE'),

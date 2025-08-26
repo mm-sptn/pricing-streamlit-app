@@ -36,6 +36,37 @@ target_zone_label = st.sidebar.selectbox(
 current_zone_key = price_zones_dict.get(current_zone_label)
 target_zone_key = price_zones_dict.get(target_zone_label)
 
-item_prices_df = gd.get_item_prices(eff_date, current_zone_key)
+current_item_prices_df = gd.get_item_prices(eff_date, current_zone_key)
+target_item_prices_df = gd.get_item_prices(eff_date, target_zone_key)
 
-st.write(item_prices_df)
+diff_item_prices_df = current_item_prices_df.join(
+    target_item_prices_df,
+    on = current_item_prices_df['FULL_UPC_NBR'] == target_item_prices_df['FULL_UPC_NBR'],
+    how = 'inner'
+    ).filter(col("c.IP_UNIT_PRICE") != col("t.IP_UNIT_PRICE")).select(
+    current_item_prices_df['"Anchor Group ID"'].alias('Anchor Group ID'),
+    current_item_prices_df['FULL_UPC_NBR'].alias('UPC'),
+    current_item_prices_df['IP_PRICE_MULTIPLE'].alias('C Multiple'),
+    current_item_prices_df['IP_UNIT_PRICE'].alias('C Retail'),
+    current_item_prices_df['IP_START_DATE'].alias('C From'),
+    current_item_prices_df['IP_END_DATE'].alias('C Through'),
+    target_item_prices_df['IP_PRICE_MULTIPLE'].alias('T Multiple'),
+    target_item_prices_df['IP_UNIT_PRICE'].alias('T Retail'),
+    target_item_prices_df['IP_START_DATE'].alias('T From'),
+    target_item_prices_df['IP_END_DATE'].alias('T Through'),
+    current_item_prices_df['PROMO_TYPE'].alias('Promo'),
+    current_item_prices_df['PROMO_PRICE_MULTIPLE'].alias('Promo Multiple'),
+    current_item_prices_df['PROMO_UNIT_PRICE'].alias('Promo Retail'),
+    current_item_prices_df['PROMO_START_DATE'].alias('Promo From'),
+    current_item_prices_df['PROMO_END_DATE'].alias('Promo Through'),
+    current_item_prices_df['"Brand"'].alias('Brand'),
+    current_item_prices_df['"Item Description"'].alias('Item Description'),
+    current_item_prices_df['"Unit Size"'].alias('Unit Size'),
+    current_item_prices_df['"Group ID"'].alias('Group ID'),
+    current_item_prices_df['"Category ID"'].alias('Category ID'),
+    current_item_prices_df['STORE_COUNT'].alias('C Store Count'),
+    target_item_prices_df['STORE_COUNT'].alias('T Store Count')
+)
+diff_item_prices_df = diff_item_prices_df.to_pandas()
+st.write(diff_item_prices_df)
+st.write(f"Total Items: {len(diff_item_prices_df)}")
