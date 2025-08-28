@@ -19,102 +19,80 @@ def get_price_strategies():
     zone_map_df = zone_map_df.to_pandas()
     return zone_map_df
 
-
 def get_item_prices(eff_date, zone_key):
     session = get_cached_session()
 
-    store_zone_df = session.table('EDL.PHQ.SN_REV_ZONEGRP').filter(
-        col('ZONECODE') == zone_key
+    ip_df = session.table('edl.phq.item_price').filter(
+        (col('ip_start_date') <= eff_date) &
+        (coalesce(to_date(col('IP_END_DATE')), lit('9999-12-31')) >= eff_date) &
+        (col('record_status') != 3)
     ).select(
-        col('ZONECODE'),
-        col('STORECODE')
-    ).distinct()
-
-    item_df = session.table('SBX_BIZ.MARKETING.T_ITEM').select(
-        col('"Anchor Group ID"'),
-        col('"Item Description"'),
-        col('"Product UPC"'),
-        col('"Unit Size"'),
-        col('"Group ID"'),
-        col('"Category ID"'),
-        col('"Brand"')
+        col('item_id').alias('ip_item_id'),
+        col('item_price_id').alias('item_price_id'),
+        col('v_id').alias('v_id'),
+        col('ip_unit_price').alias('ip_unit_price'),
+        col('ip_price_multiple').alias('ip_price_multiple'),
+        col('ip_start_date').alias('ip_start_date'),
+        col('ip_end_date').alias('ip_end_date'),
+        col('store_id').alias('ip_store_nbr'),
+        col('pt_type').alias('ip_pt_type')
     )
 
-    pt_type_df = session.table('EDL.PHQ.PRICE_TYPE').select(
-        col('PT_TYPE'),
-        col('DESCRIPTION').alias('PT_DESCRIPTION')
+    im_df = session.table('edl.phq.item_master').select(
+        col('item_id').alias('im_item_id'),
+        col('upc_ean').alias('upc_ean')
     )
 
-    store_item_prices_df = session.table('EDL.PHQ.ITEM_RETAIL_PRICE_DT').filter(
-        (eff_date >= to_date(col('IP_START_DATE'))) & 
-        (eff_date <= coalesce(to_date(col('IP_END_DATE')), lit('9999-12-31')))
+    item_df = session.table('edw.rtl.retail_item_vw').select(
+        col('product_upc').alias('product_upc'),
+        col('mdse_grp_key').alias('mdse_grp_key'),
+        col('mdse_catgy_key').alias('mdse_catgy_key'),
+        col('item_description').alias('item_description')
     )
 
-    store_item_prices_df = store_item_prices_df.join(
-        store_zone_df,
-        on = store_item_prices_df['STORE_ID'] == store_zone_df['STORECODE'],
+    zg_df = session.table('edl.phq.sn_rev_zonegrp').filter(
+        (col('zonegroupcode') == 1) &
+        (col('zonecode') == zone_key)
+    ).select(
+        col('zonecode').alias('zonecode'),
+        col('zonename').alias('zonename'),
+        col('storecode').alias('zg_store_nbr')
+    )
+
+    pt_df = session.table('edl.phq.price_type').select(
+        col('pt_type').alias('pt_pt_type'),
+        col('description').alias('pt_description')
+    )
+
+    df = ip_df.join(
+        zg_df,
+        zg_df['zg_store_nbr'] == ip_df['ip_store_nbr'],
         how = 'inner'
     ).join(
-        pt_type_df,
-        on = store_item_prices_df['PT_TYPE'] == pt_type_df['PT_TYPE'],
+        pt_df,
+        ip_df['ip_pt_type'] == pt_df['pt_pt_type'],
         how = 'inner'
-    ).select(
-        col('ZONECODE'),
-        col('FULL_UPC_NBR'),
-        col('IP_UNIT_PRICE'),
-        col('IP_PRICE_MULTIPLE'),
-        col('IP_START_DATE'),
-        col('IP_END_DATE'),
-        col('PT_DESCRIPTION')
     )
 
-    zone_item_prices_df = (
-        store_item_prices_df.group_by(
-            col('ZONECODE'),
-            col('FULL_UPC_NBR'),
-        )
-        .agg(
-            mode(when(col('PT_DESCRIPTION') == 'Regular', col('IP_UNIT_PRICE'))).alias('IP_UNIT_PRICE'),
-            mode(when(col('PT_DESCRIPTION') == 'Regular', col('IP_PRICE_MULTIPLE'))).alias('IP_PRICE_MULTIPLE'),
-            mode(when(col('PT_DESCRIPTION') == 'Regular', col('IP_START_DATE'))).alias('IP_START_DATE'),
-            mode(when(col('PT_DESCRIPTION') == 'Regular', col('IP_END_DATE'))).alias('IP_END_DATE'),
-            count(when(col('PT_DESCRIPTION') == 'Regular', 1)).alias('STORE_COUNT'),
+    df = df.group_by(
+        col('ip_item_id'),
+        col('v_id'),
+        col('zonecode')
+        ).agg(
+        mode(when(col('ip_pt_type') == 1, col('ip_unit_price'))).alias('unit_price'),
+        mode(when(col('ip_pt_type') == 1, col('ip_price_multiple'))).alias('price_multiple'),
+        mode(when(col('ip_pt_type') == 1, col('ip_start_date'))).alias('start_date'),
+        mode(when(col('ip_pt_type') == 1, col('ip_end_date'))).alias('end_date'),
+        count(when(col('ip_pt_type') == 1, lit(1))).alias('store_count'),
 
-            mode(when(col('PT_DESCRIPTION') != 'Regular', col('PT_DESCRIPTION'))).alias('PROMO_TYPE'),
-            mode(when(col('PT_DESCRIPTION') != 'Regular', col('IP_UNIT_PRICE'))).alias('PROMO_UNIT_PRICE'),
-            mode(when(col('PT_DESCRIPTION') != 'Regular', col('IP_PRICE_MULTIPLE'))).alias('PROMO_PRICE_MULTIPLE'),
-            mode(when(col('PT_DESCRIPTION') != 'Regular', col('IP_START_DATE'))).alias('PROMO_START_DATE'),
-            mode(when(col('PT_DESCRIPTION') != 'Regular', col('IP_END_DATE'))).alias('PROMO_END_DATE'),
-            count(when(col('PT_DESCRIPTION') != 'Regular', 1)).alias('PROMO_STORE_COUNT')
+        mode(when(col('ip_pt_type') != 1, col('pt_description'))).alias('promo_type'),
+        mode(when(col('ip_pt_type') != 1, col('ip_unit_price'))).alias('promo_unit_price'),
+        mode(when(col('ip_pt_type') != 1, col('ip_price_multiple'))).alias('promo_price_multiple'),
+        mode(when(col('ip_pt_type') != 1, col('ip_start_date'))).alias('promo_start_date'),
+        mode(when(col('ip_pt_type') != 1, col('ip_end_date'))).alias('promo_end_date'),
+        count(when(col('ip_pt_type') != 1, lit(1))).alias('promo_store_count')
         )
-        .join(
-            item_df,
-            item_df['"Product UPC"'] == col('FULL_UPC_NBR'),
-            how='left'
-        )
-        .select(
-            col('ZONECODE'),
-            col('FULL_UPC_NBR'),
-            col('"Item Description"'),
-            col('"Anchor Group ID"'),
-            col('"Group ID"'),
-            col('"Category ID"'),
-            col('"Unit Size"'),
-            col('"Brand"'),
-            col('IP_UNIT_PRICE'),
-            col('IP_PRICE_MULTIPLE'),
-            col('IP_START_DATE'),
-            col('IP_END_DATE'),
-            col('STORE_COUNT'),
-            col('PROMO_TYPE'),
-            col('PROMO_UNIT_PRICE'),
-            col('PROMO_PRICE_MULTIPLE'),
-            col('PROMO_START_DATE'),
-            col('PROMO_END_DATE'),
-            col('PROMO_STORE_COUNT')
-        )
-    )
 
-    return zone_item_prices_df
+    return df
 
 

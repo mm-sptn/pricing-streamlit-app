@@ -41,32 +41,17 @@ target_item_prices_df = gd.get_item_prices(eff_date, target_zone_key)
 
 diff_item_prices_df = current_item_prices_df.join(
     target_item_prices_df,
-    on = current_item_prices_df['FULL_UPC_NBR'] == target_item_prices_df['FULL_UPC_NBR'],
+    on = 
+        (current_item_prices_df['ip_item_id'] == target_item_prices_df['ip_item_id']) &
+        (current_item_prices_df['v_id'] == target_item_prices_df['v_id']),
     how = 'inner'
-    ).filter(col("c.IP_UNIT_PRICE") != col("t.IP_UNIT_PRICE")).select(
-    current_item_prices_df['"Anchor Group ID"'].alias('Anchor Group ID'),
-    current_item_prices_df['FULL_UPC_NBR'].alias('UPC'),
-    current_item_prices_df['IP_PRICE_MULTIPLE'].alias('C Multiple'),
-    current_item_prices_df['IP_UNIT_PRICE'].alias('C Retail'),
-    current_item_prices_df['IP_START_DATE'].alias('C From'),
-    current_item_prices_df['IP_END_DATE'].alias('C Through'),
-    target_item_prices_df['IP_PRICE_MULTIPLE'].alias('T Multiple'),
-    target_item_prices_df['IP_UNIT_PRICE'].alias('T Retail'),
-    target_item_prices_df['IP_START_DATE'].alias('T From'),
-    target_item_prices_df['IP_END_DATE'].alias('T Through'),
-    current_item_prices_df['PROMO_TYPE'].alias('Promo'),
-    current_item_prices_df['PROMO_PRICE_MULTIPLE'].alias('Promo Multiple'),
-    current_item_prices_df['PROMO_UNIT_PRICE'].alias('Promo Retail'),
-    current_item_prices_df['PROMO_START_DATE'].alias('Promo From'),
-    current_item_prices_df['PROMO_END_DATE'].alias('Promo Through'),
-    current_item_prices_df['"Brand"'].alias('Brand'),
-    current_item_prices_df['"Item Description"'].alias('Item Description'),
-    current_item_prices_df['"Unit Size"'].alias('Unit Size'),
-    current_item_prices_df['"Group ID"'].alias('Group ID'),
-    current_item_prices_df['"Category ID"'].alias('Category ID'),
-    current_item_prices_df['STORE_COUNT'].alias('C Store Count'),
-    target_item_prices_df['STORE_COUNT'].alias('T Store Count')
-)
-diff_item_prices_df = diff_item_prices_df.to_pandas()
+    ).filter(current_item_prices_df['unit_price'] != target_item_prices_df['unit_price'])
+
 st.write(diff_item_prices_df)
-st.write(f"Total Items: {len(diff_item_prices_df)}")
+st.write(f"Total Items: {diff_item_prices_df.count()}")
+
+
+#st.write(current_item_prices_df)
+#st.write(f"Total Items: {current_item_prices_df.count()}")
+#st.write(target_item_prices_df)
+#st.write(f"Total Items: {target_item_prices_df.count()}")
