@@ -47,8 +47,8 @@ diff_item_prices_df = current_item_prices_df.join(
     how = 'inner'
     ).filter(current_item_prices_df['unit_price'] != target_item_prices_df['unit_price'])
 
-st.write(diff_item_prices_df)
-st.write(f"Total Items: {diff_item_prices_df.count()}")
+st.write("Hello World")
+#st.write(f"Total Items: {diff_item_prices_df.count()}")
 
 
 #st.write(current_item_prices_df)
