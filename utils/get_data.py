@@ -1,5 +1,7 @@
 import streamlit as st
-from snowflake.snowpark.functions import col, to_date, coalesce, lit, mode, count, when
+from snowflake.snowpark.functions import col, to_date, coalesce, lit, mode, count, when, row_number, to_date
+from snowflake.snowpark.window import Window
+from datetime import datetime, timedelta
 from utils.session import get_cached_session
 
 
@@ -19,80 +21,116 @@ def get_price_strategies():
     zone_map_df = zone_map_df.to_pandas()
     return zone_map_df
 
-def get_item_prices(eff_date, zone_key):
+def get_reg_item_prices(eff_date, zone_key):
     session = get_cached_session()
 
-    ip_df = session.table('edl.phq.item_price').filter(
-        (col('ip_start_date') <= eff_date) &
-        (coalesce(to_date(col('IP_END_DATE')), lit('9999-12-31')) >= eff_date) &
-        (col('record_status') != 3)
-    ).select(
-        col('item_id').alias('ip_item_id'),
-        col('item_price_id').alias('item_price_id'),
-        col('v_id').alias('v_id'),
-        col('ip_unit_price').alias('ip_unit_price'),
-        col('ip_price_multiple').alias('ip_price_multiple'),
-        col('ip_start_date').alias('ip_start_date'),
-        col('ip_end_date').alias('ip_end_date'),
-        col('store_id').alias('ip_store_nbr'),
-        col('pt_type').alias('ip_pt_type')
+    ip_base = (
+        session.table('edl.phq.item_price')
+        .filter(
+            (col('ip_start_date') <= eff_date) &
+            (coalesce(to_date(col('IP_END_DATE')), lit('9999-12-31')) >= eff_date) &
+            (col('record_status') != 3) &
+            (col('pt_type') == 1) &
+            (col('price_strategy') == zone_key)
+        )
     )
 
-    im_df = session.table('edl.phq.item_master').select(
-        col('item_id').alias('im_item_id'),
-        col('upc_ean').alias('upc_ean')
-    )
+    w = Window.partition_by(col('item_id'), col('v_id'), col('pt_type')).order_by(col('ip_start_date').desc())
 
-    item_df = session.table('edw.rtl.retail_item_vw').select(
-        col('product_upc').alias('product_upc'),
-        col('mdse_grp_key').alias('mdse_grp_key'),
-        col('mdse_catgy_key').alias('mdse_catgy_key'),
-        col('item_description').alias('item_description')
+    ip_df = (
+        ip_base
+        .with_column("rn", row_number().over(w))
+        .filter(col("rn") == 1)
+        .select(
+            col('item_id').alias('item_id'),
+            col('v_id').alias('v_id'),
+            col('ip_unit_price').alias('unit_price'),
+            col('ip_price_multiple').alias('price_multiple'),
+            col('ip_start_date').alias('start_date'),
+            col('ip_end_date').alias('end_date'),
+            col('price_strategy').alias('price_strategy')
+        )
     )
 
     zg_df = session.table('edl.phq.sn_rev_zonegrp').filter(
+        col('zonegroupcode') == 1
+    ).select(
+        col('zonecode'),
+        col('zonename')
+    ).distinct()
+
+    df = ip_df.join(
+        zg_df,
+        ip_df['price_strategy'] == zg_df['zonecode'],
+        how = 'inner'
+    )
+
+    return df
+
+def get_promo_item_prices(eff_date, zone_key):
+    session = get_cached_session()
+
+    ad_groups_df = session.table('edl.phq.ad_group_stores').filter(
+        (col('record_status') != 3)
+    )
+
+    zones_df = session.table('edl.phq.sn_rev_zonegrp').filter(
         (col('zonegroupcode') == 1) &
         (col('zonecode') == zone_key)
-    ).select(
-        col('zonecode').alias('zonecode'),
-        col('zonename').alias('zonename'),
-        col('storecode').alias('zg_store_nbr')
     )
 
     pt_df = session.table('edl.phq.price_type').select(
         col('pt_type').alias('pt_pt_type'),
-        col('description').alias('pt_description')
+        col('description')
+    )
+
+    ag_zone_mapping = ad_groups_df.join(
+        zones_df,
+        ad_groups_df['store_id'] == zones_df['storecode'],
+        how = 'inner'
+    ).select(
+        col('ad_group'),
+        col('zonecode'),
+        col('zonename')
+    ).distinct()
+
+    ip_base = (
+        session.table('edl.phq.item_price')
+        .filter(
+            (col('ip_start_date') <= eff_date) &
+            (coalesce(to_date(col('IP_END_DATE')), lit('9999-12-31')) >= eff_date) &
+            (col('record_status') != 3) &
+            (col('pt_type') != 1) &
+            (col('store_id') == 0)
+        )
+    )
+
+    w = Window.partition_by(col('item_id'), col('v_id'), col('pt_type')).order_by(col('ip_start_date').desc())
+
+    ip_df = (
+        ip_base
+        .with_column("rn", row_number().over(w))
+        .filter(col("rn") == 1)
+        .select(
+            col('item_id').alias('item_id'),
+            col('v_id').alias('v_id'),
+            col('ip_unit_price').alias('unit_price'),
+            col('ip_price_multiple').alias('price_multiple'),
+            col('ip_start_date').alias('start_date'),
+            col('ip_end_date').alias('end_date'),
+            col('pt_type'),
+            col('ad_group')
+        )
     )
 
     df = ip_df.join(
-        zg_df,
-        zg_df['zg_store_nbr'] == ip_df['ip_store_nbr'],
+        ag_zone_mapping,
+        ip_df['ad_group'] == ag_zone_mapping['ad_group'],
         how = 'inner'
     ).join(
         pt_df,
-        ip_df['ip_pt_type'] == pt_df['pt_pt_type'],
+        ip_df['pt_type'] == pt_df['pt_pt_type'],
         how = 'inner'
     )
 
-    df = df.group_by(
-        col('ip_item_id'),
-        col('v_id'),
-        col('zonecode')
-        ).agg(
-        mode(when(col('ip_pt_type') == 1, col('ip_unit_price'))).alias('unit_price'),
-        mode(when(col('ip_pt_type') == 1, col('ip_price_multiple'))).alias('price_multiple'),
-        mode(when(col('ip_pt_type') == 1, col('ip_start_date'))).alias('start_date'),
-        mode(when(col('ip_pt_type') == 1, col('ip_end_date'))).alias('end_date'),
-        count(when(col('ip_pt_type') == 1, lit(1))).alias('store_count'),
-
-        mode(when(col('ip_pt_type') != 1, col('pt_description'))).alias('promo_type'),
-        mode(when(col('ip_pt_type') != 1, col('ip_unit_price'))).alias('promo_unit_price'),
-        mode(when(col('ip_pt_type') != 1, col('ip_price_multiple'))).alias('promo_price_multiple'),
-        mode(when(col('ip_pt_type') != 1, col('ip_start_date'))).alias('promo_start_date'),
-        mode(when(col('ip_pt_type') != 1, col('ip_end_date'))).alias('promo_end_date'),
-        count(when(col('ip_pt_type') != 1, lit(1))).alias('promo_store_count')
-        )
-
     return df
-
-
