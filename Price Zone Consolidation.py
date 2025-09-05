@@ -1,6 +1,6 @@
 from utils.session import get_cached_session
 import utils.get_data as gd
-from snowflake.snowpark.functions import sproc, col
+from snowflake.snowpark.functions import sproc, col, when
 import streamlit as st
 from datetime import date, timedelta
 
@@ -63,22 +63,27 @@ target_reg_item_prices_df = gd.get_reg_item_prices(eff_date, target_zone_key)
 current_promo_item_prices_df = gd.get_promo_item_prices(eff_date, current_zone_key)
 target_promo_item_prices_df = gd.get_promo_item_prices(eff_date, target_zone_key)
 
+current_mvmt_df = gd.get_26w_movement(eff_date, current_zone_key)
+target_mvmt_df = gd.get_26w_movement(eff_date, target_zone_key)
+
 diff_reg_item_prices_df = current_reg_item_prices_df.join(
     target_reg_item_prices_df,
     on = 
         (current_reg_item_prices_df['item_id'] == target_reg_item_prices_df['item_id']) &
         (current_reg_item_prices_df['v_id'] == target_reg_item_prices_df['v_id']),
-    how = 'inner'
+    how = 'fullouter'
     ).filter(
         current_reg_item_prices_df['unit_price'] != target_reg_item_prices_df['unit_price']
     ).select(
         current_reg_item_prices_df['item_id'].alias('joined_item_id'),
         current_reg_item_prices_df['v_id'].alias('joined_v_id'),
         current_reg_item_prices_df['zonename'].alias('moving_zone'),
+        current_reg_item_prices_df['price_strategy'].alias('moving_price_strategy'),
         current_reg_item_prices_df['start_date'].alias('moving_start'),
         current_reg_item_prices_df['end_date'].alias('moving_end'),
         current_reg_item_prices_df['price_multiple'].alias('moving_multiple'),
         current_reg_item_prices_df['unit_price'].alias('moving_retail'),
+        target_reg_item_prices_df['price_strategy'].alias('target_price_strategy'),
         target_reg_item_prices_df['zonename'].alias('target_zone'),
         target_reg_item_prices_df['start_date'].alias('target_start'),
         target_reg_item_prices_df['end_date'].alias('target_end'),
@@ -99,17 +104,29 @@ df = diff_reg_item_prices_df.join(
         (diff_reg_item_prices_df['joined_v_id'] == target_promo_item_prices_df['v_id']),
     how = 'left'
 ).join(
+    current_mvmt_df,
+    on =
+        (diff_reg_item_prices_df['moving_price_strategy'] == current_mvmt_df['zonecode']) &
+        (diff_reg_item_prices_df['joined_item_id'] == current_mvmt_df['sales_item_id']),
+    how = 'left'
+).join(
+    target_mvmt_df,
+    on =
+        (diff_reg_item_prices_df['moving_price_strategy'] == target_mvmt_df['zonecode']) &
+        (diff_reg_item_prices_df['joined_item_id'] == target_mvmt_df['sales_item_id']),
+    how = 'left'
+).join(
     vendor_df,
     diff_reg_item_prices_df['joined_v_id'] == vendor_df['vm_v_id'],
-    how = 'inner'
+    how = 'left'
 ).join(
     im_df,
     diff_reg_item_prices_df['joined_item_id'] == im_df['im_item_id'],
-    how = 'inner'
+    how = 'left'
 ).join(
     item_df,
     im_df['upc_ean'] == item_df['product_upc'],
-    how = 'inner'
+    how = 'left'
 ).select(
     item_df['product_upc'].alias('UPC'),
     item_df['item_description'].alias('Item Description'),
@@ -125,11 +142,13 @@ df = diff_reg_item_prices_df.join(
     diff_reg_item_prices_df['moving_end'].alias('M Through'),
     diff_reg_item_prices_df['moving_multiple'].alias('M Multiple'),
     diff_reg_item_prices_df['moving_retail'].alias('M Retail'),
+    current_mvmt_df['26w_mvmt'].alias('M 26w Mvmt'),
     diff_reg_item_prices_df['target_zone'].alias('Target Zone'),
     diff_reg_item_prices_df['target_start'].alias('T From'),
     diff_reg_item_prices_df['target_end'].alias('T Through'),
     diff_reg_item_prices_df['target_multiple'].alias('T Multiple'),
     diff_reg_item_prices_df['target_retail'].alias('T Retail'),
+    target_mvmt_df['26w_mvmt'].alias('T 26w Mvmt'),
     current_promo_item_prices_df['description'].alias('M Promo'),
     current_promo_item_prices_df['start_date'].alias('M Promo From'),
     current_promo_item_prices_df['end_date'].alias('M Promo Through'),

@@ -1,5 +1,6 @@
 import streamlit as st
-from snowflake.snowpark.functions import col, to_date, coalesce, lit, mode, count, when, row_number, to_date
+from snowflake.snowpark.functions import col, to_date, coalesce, lit, mode, count, when, row_number, date_add, date_trunc, dayofweek, sum as _sum
+
 from snowflake.snowpark.window import Window
 from datetime import datetime, timedelta
 from utils.session import get_cached_session
@@ -134,3 +135,74 @@ def get_promo_item_prices(eff_date, zone_key):
     )
 
     return df
+
+def get_26w_movement(eff_date, zone_key):
+    session = get_cached_session()
+
+
+    adjusted_end_date = date_add(
+        lit(eff_date),
+        -((dayofweek(lit(eff_date)) % 7)) 
+    )
+
+    start_date = date_add(adjusted_end_date, -7 * 26)
+
+    item_df = session.table('sbx_biz.marketing.t_item').select(
+        col('"RETAIL_ITEM_ID"').alias('retail_item_pk'),
+        col('"Product UPC"').alias('upc')
+    )
+
+    im_df = session.table('edl.phq.item_master').select(
+        col('item_id').alias('sales_item_id'),
+        col('upc_ean')
+    )
+
+    item_df = item_df.join(
+        im_df,
+        item_df['upc'] == im_df['upc_ean'],
+        how = 'inner'
+    )
+
+    zones_df = session.table('edl.phq.sn_rev_zonegrp').filter(
+        (col('zonegroupcode') == 1) &
+        (col('zonecode') == zone_key)
+    ).select(
+        col('zonecode'),
+        col('storecode')
+    )
+
+
+    sales_df = session.table('edw.rtl.retail_sales').select(
+        col('sales_date_id').alias('sales_date_id'),
+        col('retail_item_id').alias('retail_item_id'),
+        col('store_nbr').alias('store_nbr'),
+        col('total_sales_qty').alias('total_sales_qty')
+    ).with_column(
+        'sales_date',
+        to_date(col('sales_date_id').cast('string'), 'YYYYMMDD')
+    ).filter(
+        (col('sales_date') > start_date) &
+        (col('sales_date') <= adjusted_end_date)
+    )
+
+    sales_df = sales_df.join(
+        item_df,
+        sales_df['retail_item_id'] == item_df['retail_item_pk'],
+        how = 'inner'
+    ).join(
+        zones_df,
+        sales_df['store_nbr'] == zones_df['storecode'],
+        how = 'inner'
+    )
+
+    df = sales_df.group_by(
+        col('zonecode'),
+        col('sales_item_id')
+    ).agg(
+        _sum(col('total_sales_qty')).alias('26w_mvmt')
+    )
+
+    return df
+    
+
+    
