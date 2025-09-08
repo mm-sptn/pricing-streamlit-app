@@ -17,5 +17,6 @@ pg = st.navigation([home, data_explorer, pz_consolidation])
 # App config
 st.set_page_config(page_title="Pricing App", page_icon=":moneybag:", layout="wide")
 
+
 # Run nav
 pg.run()
