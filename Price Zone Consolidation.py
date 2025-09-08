@@ -152,7 +152,6 @@ def compare_zones(eff_date, moving_zone_key, target_zone_key):
         im_df['upc_ean'] == item_df['product_upc'],
         how = 'left'
     ).select(
-        im_df['im_item_id'],
         item_df['product_upc'].alias('UPC'),
         item_df['item_description'].alias('Item Description'),
         item_df['unit_size'].alias('Unit Size'),
@@ -173,7 +172,7 @@ def compare_zones(eff_date, moving_zone_key, target_zone_key):
             'Change Moving ASAP'
         ).when(
             moving_mvmt_df['26w_mvmt'].is_not_null(),
-            'Change Current Slow'
+            'Change Moving Slow'
         ).otherwise(
             'Audit'
         ).alias('"Action"'),
@@ -183,6 +182,8 @@ def compare_zones(eff_date, moving_zone_key, target_zone_key):
         ).when(
             diff_reg_item_prices_df['moving_retail'] > diff_reg_item_prices_df['target_retail'],
             'down'
+        ).otherwise(
+            '---'
         ).alias('Price Movement'),
         when(
             diff_reg_item_prices_df['moving_retail'].is_not_null() &
@@ -225,23 +226,45 @@ def compare_zones(eff_date, moving_zone_key, target_zone_key):
 
 if st.session_state.get("load_data", False):
     df = compare_zones(eff_date, moving_zone_key, target_zone_key)
-    st.success(f"Comparing Moving Zone {moving_zone_label} to Target Zone {target_zone_label} for prices as of {eff_date.strftime('%A, %B %d, %Y')}.")
-    st.write(df)
 
-    df["M From"] = pd.to_datetime(df["M From"], errors="coerce")
-    df["T From"] = pd.to_datetime(df["T From"], errors="coerce")
-    df["Moving Price Age"] = (datetime.now() - df["M From"]).dt.days
-    df["Target Price Age"] = (datetime.now() - df["T From"]).dt.days
-    m_age_days = df["Moving Price Age"].mean()
-    t_age_days = df['Target Price Age'].mean()
+    action_selection = st.sidebar.multiselect(
+    "Action", 
+    sorted(df['Action'].unique()),
+    key = "Action"
+    )
+
+    movement_selection = st.sidebar.multiselect(
+    "Price Movement", 
+    sorted(df['Price Movement'].dropna().unique()),
+    key = "Price Movement"
+    )
+
+    filtered_df = df.copy()
+
+    if action_selection:
+        filtered_df = filtered_df[filtered_df['Action'].isin(action_selection)]
+
+    if movement_selection:
+        filtered_df = filtered_df[filtered_df['Price Movement'].isin(movement_selection)]
+
+
+    st.success(f"Comparing Moving Zone {moving_zone_label} to Target Zone {target_zone_label} for prices as of {eff_date.strftime('%A, %B %d, %Y')}.")
+    st.write(filtered_df)
+
+    filtered_df["M From"] = pd.to_datetime(filtered_df["M From"], errors="coerce")
+    filtered_df["T From"] = pd.to_datetime(filtered_df["T From"], errors="coerce")
+    filtered_df["Moving Price Age"] = (datetime.now() - filtered_df["M From"]).dt.days
+    filtered_df["Target Price Age"] = (datetime.now() - filtered_df["T From"]).dt.days
+    m_age_days = filtered_df["Moving Price Age"].mean()
+    t_age_days = filtered_df['Target Price Age'].mean()
 
     col1, col2, col3 = st.columns(3)
 
-    col1.metric(label = "Total Items", value = len(df))
-    col2.metric(label = "Avg Moving Zone Price Age (Days)", value = round(m_age_days, 2))
-    col3.metric(label = "Avg Target Zone Price Age (Days)", value = round(t_age_days, 2))
+    col1.metric(label = "Total Items", value = len(filtered_df))
+    col2.metric(label = "Avg Moving Zone Price Age (Days)", value = round(m_age_days, 0))
+    col3.metric(label = "Avg Target Zone Price Age (Days)", value = round(t_age_days, 0))
 
-    percentages = df['Price Variance %'].dropna() * 100
+    percentages = filtered_df['Price Variance %'].dropna() * 100
 
     percentages = percentages.clip(-100, 100)
 
