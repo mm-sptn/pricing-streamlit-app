@@ -261,8 +261,8 @@ if st.session_state.get("load_data", False):
     col1, col2, col3 = st.columns(3)
 
     col1.metric(label = "Total Items", value = len(filtered_df))
-    col2.metric(label = "Avg Moving Zone Price Age (Days)", value = round(m_age_days, 0))
-    col3.metric(label = "Avg Target Zone Price Age (Days)", value = round(t_age_days, 0))
+    col2.metric(label = "Avg Moving Zone Price Age (Days)", value = int(round(m_age_days, 0)))
+    col3.metric(label = "Avg Target Zone Price Age (Days)", value = int(round(t_age_days, 0)))
 
     percentages = filtered_df['Price Variance %'].dropna() * 100
 
