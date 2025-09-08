@@ -227,6 +227,8 @@ def compare_zones(eff_date, moving_zone_key, target_zone_key):
 if st.session_state.get("load_data", False):
     df = compare_zones(eff_date, moving_zone_key, target_zone_key)
 
+    st.sidebar.divider()
+
     action_selection = st.sidebar.multiselect(
     "Action", 
     sorted(df['Action'].unique()),
@@ -261,8 +263,16 @@ if st.session_state.get("load_data", False):
     col1, col2, col3 = st.columns(3)
 
     col1.metric(label = "Total Items", value = len(filtered_df))
-    col2.metric(label = "Avg Moving Zone Price Age (Days)", value = int(round(m_age_days, 0)))
-    col3.metric(label = "Avg Target Zone Price Age (Days)", value = int(round(t_age_days, 0)))
+    
+    if pd.notna(m_age_days):
+        col2.metric(label = "Avg Moving Zone Price Age (Days)", value = int(round(m_age_days, 0)))
+    else:
+        col2.metric(label = "Avg Moving Zone Price Age (Days)", value = "N/A")
+    
+    if pd.notna(t_age_days):
+        col3.metric(label = "Avg Target Zone Price Age (Days)", value = int(round(t_age_days, 0)))
+    else:
+        col3.metric(label = "Avg Target Zone Price Age (Days)", value = "N/A")
 
     percentages = filtered_df['Price Variance %'].dropna() * 100
 
@@ -279,7 +289,6 @@ if st.session_state.get("load_data", False):
     plt.tight_layout()
     plt.show()
 
-    # Show in Streamlit
     st.pyplot(plt)
 
 
