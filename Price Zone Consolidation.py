@@ -1,6 +1,6 @@
 from utils.session import get_cached_session
 import utils.get_data as gd
-from snowflake.snowpark.functions import sproc, col, when, coalesce, to_date, lit
+from snowflake.snowpark.functions import col, when, coalesce, to_date, lit, concat
 import streamlit as st
 import pandas as pd
 from datetime import date, timedelta
@@ -61,14 +61,28 @@ def compare_zones(eff_date, moving_zone_key, target_zone_key):
         col('upc_ean')
     )
 
-    item_df = session.table('sbx_biz.marketing.t_item').select(
-        col('"Product UPC"').alias('product_upc'),
-        col('"Unit Size"').alias('unit_size'),
-        col('"Item Description"').alias('item_description'),
-        col('"Brand"').alias('brand'),
-        col('"Group ID"').alias('group_id'),
-        col('"Category ID"').alias('category_id'),
-        col('"Anchor Group ID"').alias('anchor_group_id')
+    item_df = session.table('edw.rtl.retail_item_vw').select(
+        col('item_id').alias('ri_item_id'),
+        col('product_upc').alias('product_upc'),
+        col('item_size_uom_desc').alias('unit_size'),
+        col('item_description').alias('item_description'),
+        col('item_brand_desc').alias('brand'),
+        col('mdse_grp_key').alias('group_id'),
+        col('mdse_catgy_key').alias('category_id')
+    )
+
+    anchor_df = session.table('sbx_biz.marketing.v_anchor_detail')
+
+    item_df = item_df.join(
+        anchor_df,
+        item_df['ri_item_id'] == anchor_df['upc'],
+        how = 'left'
+    )
+
+    item_df = item_df.with_column(
+        'UPC-Apid',
+        when(col("apid").is_not_null(), concat(lit("a_"), col("apid").cast('string')))
+        .otherwise(col("ri_item_id").cast('string'))
     )
 
     moving_reg_item_prices_df = gd.get_reg_item_prices(eff_date, moving_zone_key)
@@ -152,13 +166,13 @@ def compare_zones(eff_date, moving_zone_key, target_zone_key):
         im_df['upc_ean'] == item_df['product_upc'],
         how = 'left'
     ).select(
-        item_df['product_upc'].alias('UPC'),
-        item_df['item_description'].alias('Item Description'),
-        item_df['unit_size'].alias('Unit Size'),
-        item_df['anchor_group_id'].alias('Anchor Group ID'),
-        item_df['brand'].alias('"Brand"'),
         item_df['group_id'].alias('Group ID'),
         item_df['category_id'].alias('Category ID'),
+        item_df['UPC-Apid'].alias('UPC-Apid'),
+        item_df['ri_item_id'].alias('UPC'),
+        item_df['brand'].alias('"Brand"'),
+        item_df['item_description'].alias('Item Description'),
+        item_df['unit_size'].alias('Unit Size'),
         vendor_df['vendor'].alias('Vendor Number'),
         vendor_df['vendor_name'].alias('"Vendor"'),
         when(
@@ -184,7 +198,7 @@ def compare_zones(eff_date, moving_zone_key, target_zone_key):
             'down'
         ).otherwise(
             '---'
-        ).alias('Price Movement'),
+        ).alias('Price Up/Dn'),
         when(
             diff_reg_item_prices_df['moving_retail'].is_not_null() &
             diff_reg_item_prices_df['target_retail'].is_not_null(),
@@ -230,15 +244,45 @@ if st.session_state.get("load_data", False):
     st.sidebar.divider()
 
     action_selection = st.sidebar.multiselect(
-    "Action", 
-    sorted(df['Action'].unique()),
-    key = "Action"
+        "Action", 
+        sorted(df['Action'].unique()),
+        key = "Action"
     )
 
     movement_selection = st.sidebar.multiselect(
-    "Price Movement", 
-    sorted(df['Price Movement'].dropna().unique()),
-    key = "Price Movement"
+        "Price Up/Dn", 
+        sorted(df['Price Up/Dn'].dropna().unique()),
+        key = "Price Up/Dn"
+    )
+
+    group_selection = st.sidebar.multiselect(
+        'Group ID',
+        sorted(df['Group ID'].dropna().astype(int).unique()),
+        key = "Group ID"
+    )
+
+    category_selection = st.sidebar.multiselect(
+        'Category ID',
+        sorted(df['Category ID'].dropna().astype(int).unique()),
+        key = "Category ID"
+    )
+
+    vendor_selection = st.sidebar.multiselect(
+        'Vendor',
+        sorted(df['Vendor'].dropna().unique()),
+        key = "Vendor"
+    )
+
+    moving_promo_selection = st.sidebar.multiselect(
+        'Moving Promo',
+        sorted(df['M Promo'].dropna().unique()),
+        key = "M Promo"
+    )
+
+    target_promo_selection = st.sidebar.multiselect(
+        'Target Promo',
+        sorted(df['M Promo'].dropna().unique()),
+        key = "T Promo"
     )
 
     filtered_df = df.copy()
@@ -247,11 +291,26 @@ if st.session_state.get("load_data", False):
         filtered_df = filtered_df[filtered_df['Action'].isin(action_selection)]
 
     if movement_selection:
-        filtered_df = filtered_df[filtered_df['Price Movement'].isin(movement_selection)]
+        filtered_df = filtered_df[filtered_df['Price Up/Dn'].isin(movement_selection)]
+
+    if group_selection:
+        filtered_df = filtered_df[filtered_df['Group ID'].isin(group_selection)]
+
+    if category_selection:
+        filtered_df = filtered_df[filtered_df['Category ID'].isin(category_selection)]
+
+    if vendor_selection:
+        filtered_df = filtered_df[filtered_df['Vendor'].isin(vendor_selection)]
+
+    if moving_promo_selection:
+        filtered_df = filtered_df[filtered_df['M Promo'].isin(movement_selection)]
+
+    if target_promo_selection:
+        filtered_df = filtered_df[filtered_df['T Promo'].isin(target_promo_selection)]
 
 
     st.success(f"Comparing Moving Zone {moving_zone_label} to Target Zone {target_zone_label} for prices as of {eff_date.strftime('%A, %B %d, %Y')}.")
-    st.write(filtered_df)
+    st.dataframe(filtered_df, hide_index = True)
 
     filtered_df["M From"] = pd.to_datetime(filtered_df["M From"], errors="coerce")
     filtered_df["T From"] = pd.to_datetime(filtered_df["T From"], errors="coerce")
@@ -260,7 +319,14 @@ if st.session_state.get("load_data", False):
     m_age_days = filtered_df["Moving Price Age"].mean()
     t_age_days = filtered_df['Target Price Age'].mean()
 
-    col1, col2, col3 = st.columns(3)
+    action_count_df = df['Action'].value_counts()
+    action_count_df = action_count_df.rename("Count")
+
+    movement_count_df = df['Price Up/Dn'].value_counts()
+    movement_count_df = movement_count_df.rename("Count")
+
+
+    col1, col2, col3, col4 = st.columns(4)
 
     col1.metric(label = "Total Items", value = len(filtered_df))
     
@@ -270,9 +336,12 @@ if st.session_state.get("load_data", False):
         col2.metric(label = "Avg Moving Zone Price Age (Days)", value = "N/A")
     
     if pd.notna(t_age_days):
-        col3.metric(label = "Avg Target Zone Price Age (Days)", value = int(round(t_age_days, 0)))
+        col2.metric(label = "Avg Target Zone Price Age (Days)", value = int(round(t_age_days, 0)))
     else:
-        col3.metric(label = "Avg Target Zone Price Age (Days)", value = "N/A")
+        col2.metric(label = "Avg Target Zone Price Age (Days)", value = "N/A")
+
+    col3.dataframe(action_count_df)
+    col4.dataframe(movement_count_df)
 
     percentages = filtered_df['Price Variance %'].dropna() * 100
 
